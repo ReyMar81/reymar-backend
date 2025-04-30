@@ -11,6 +11,9 @@ class CoreConfig(AppConfig):
             import core.signals_grupos
             import core.signals_envios
             import core.signals_datos_basicos
+            import core.signals_clientes
+            import core.signals_actividades
+            
         except ImportError as e:
             import logging
             logger = logging.getLogger(__name__)

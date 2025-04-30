@@ -29,24 +29,6 @@ def actualizar_total_orden(sender, instance, **kwargs):
     orden.total = total
     orden.save()
 
-""" # 📦 Descuenta el stock cuando se crea un detalle de orden
-@receiver(post_save, sender=DetalleOrden)
-def descontar_stock_inventario(sender, instance, created, **kwargs):
-    if created:
-        producto = instance.producto
-        sucursal = instance.orden.sucursal
-        cantidad = instance.cantidad
-
-        try:
-            inventario = Inventario.objects.select_for_update().get(producto=producto, sucursal=sucursal)
-            if inventario.stock >= cantidad:
-                inventario.stock -= cantidad
-                inventario.save()
-            else:
-                print("❌ Stock insuficiente para producto:", producto.nombre)
-        except Inventario.DoesNotExist:
-            print("❌ Inventario no encontrado para", producto.nombre) """
-
 # 📦 Función para descontar stock - usar solo cuando el pago sea confirmado
 def descontar_stock_orden(orden):
     for detalle in orden.detalles.all():

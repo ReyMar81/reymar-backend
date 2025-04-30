@@ -484,14 +484,7 @@ class RecomendacionesAvanzadasAPIView(APIView):
 
         serializer = ProductoSerializer(recomendaciones, many=True)
         return Response(serializer.data)
-
-class CrearPagoStripeRequestSerializer(serializers.Serializer):
-    orden_id = serializers.IntegerField()
-@extend_schema(
-    request=CrearPagoStripeRequestSerializer,
-    responses={200: None}
-)
-
+    
 class CrearPagoStripeAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -502,19 +495,24 @@ class CrearPagoStripeAPIView(APIView):
             return Response({"error": "orden_id es obligatorio."}, status=400)
 
         try:
+            # Buscar la orden asociada al usuario
             orden = Orden.objects.get(id=orden_id, cliente__usuario=request.user)
         except Orden.DoesNotExist:
             return Response({"error": "Orden no encontrada."}, status=404)
 
-        payment_intent = crear_payment_intent(
-            monto_bolivianos=float(orden.total),
-            descripcion=f"Pago Orden #{orden.id}",
-            orden_id=orden.id
-        )
+        # Intentamos obtener el pago asociado a la orden
+        if orden.pago and orden.pago.referencia_externa:
+            # Si ya existe un pago y tiene referencia_externa (client_secret), lo reutilizamos
+            return Response({
+                "client_secret": orden.pago.referencia_externa
+            })
+        else:
+            # Si no hay pago asociado, creamos un nuevo pago
+            client_secret = crear_payment_intent(orden=orden)
 
-        return Response({
-            "client_secret": payment_intent.client_secret
-        })
+            return Response({
+                "client_secret": client_secret
+            })
 
 @extend_schema(
     request=None,
@@ -522,7 +520,7 @@ class CrearPagoStripeAPIView(APIView):
 )
 class StripeWebhookAPIView(APIView):
     authentication_classes = []
-    permission_classes = [] 
+    permission_classes = []
 
     def post(self, request):
         payload = request.body
@@ -535,44 +533,40 @@ class StripeWebhookAPIView(APIView):
             )
         except ValueError as e:
             # Invalid payload
-            print("⚠️ Payload inválido")
             return Response(status=400)
         except stripe.error.SignatureVerificationError as e:
             # Invalid signature
-            print("⚠️ Firma inválida")
             return Response(status=400)
 
         if event['type'] == 'payment_intent.succeeded':
             payment_intent = event['data']['object']
-
             orden_id = payment_intent['metadata'].get('orden_id')
+
             if not orden_id:
-                print("⚠️ orden_id no encontrado en metadata")
                 return Response(status=400)
 
             try:
                 orden = Orden.objects.get(id=orden_id)
+                metodo_pago = MetodoPago.objects.get(nombre="Stripe")
+
+                # Crear el pago
+                pago = Pago.objects.create(
+                    metodo_pago=metodo_pago,
+                    monto=orden.total,
+                    estado="Exitoso",
+                    referencia_externa=payment_intent['id']
+                )
+
+                # Asociamos el pago a la orden y actualizamos el estado
+                orden.pago = pago
+                orden.estado = "Pagada"
+                orden.save()
+
+                # Opcional: Descontar el stock
+                descontar_stock_orden(orden)
+
             except Orden.DoesNotExist:
-                print(f"❌ Orden ID {orden_id} no encontrada")
                 return Response(status=404)
-
-            metodopago, _ = MetodoPago.objects.get_or_create(
-                nombre="Stripe",
-                defaults={"descripcion": "Pago realizado mediante Stripe"}
-            )
-
-            pago = Pago.objects.create(
-                metodopago=metodopago,
-                monto=orden.total,
-                estado="Exitoso",
-                referencia_externa=payment_intent['id']
-            )
-            orden.pago = pago
-            orden.estado = "Pagada"
-            orden.save()
-            descontar_stock_orden(orden)
-
-            print(f"✅ Orden {orden_id} marcada como pagada y stock descontado.")
 
         return Response(status=200)
     

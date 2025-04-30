@@ -299,8 +299,6 @@ class ProductoListadoSerializer(serializers.ModelSerializer):
     def get_etiquetas_nombres(self, obj):
         return [etiqueta.nombre for etiqueta in obj.etiquetas.all()]
 
-
-
 class MarcaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Marca
